@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from core import get_model, settings
+from langchain_core.messages import HumanMessage
 
 from avg_rms_core.contracts import FinalDecision, PlannedAction
 from avg_rms_core.state import AvgRMSState
+from schema.models import FakeModelName
 
 
 class Planner(Protocol):
@@ -39,6 +40,13 @@ class ScriptedPlanner:
 
 class LLMPlanner:
     async def plan_with_model(self, prompt: str, model_name: str | None = None) -> str:
-        model = get_model(model_name or settings.DEFAULT_MODEL)
-        response = await model.ainvoke(prompt)
+        from core import get_model, settings
+
+        selected_model = model_name or settings.DEFAULT_MODEL
+        model = get_model(selected_model)
+        payload = [HumanMessage(content=prompt)]
+        if selected_model in FakeModelName:
+            response = model.invoke(payload)
+        else:
+            response = await model.ainvoke(payload)
         return response.content if hasattr(response, "content") else str(response)
