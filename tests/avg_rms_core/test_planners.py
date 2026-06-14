@@ -1,4 +1,4 @@
-from avg_rms_core.planners import ScriptedPlanner
+from avg_rms_core.planners import ScriptedPlanner, build_planner_clients
 from avg_rms_core.state import AvgRMSState
 from avg_rms_core.critics import DeterministicCritic
 from avg_rms_core.contracts import ToolResult
@@ -53,3 +53,14 @@ def test_deterministic_critic_marks_attempts_exhausted():
     decision = critic.assess(state, result)
 
     assert decision.outcome == "attempts_exhausted"
+
+
+def test_build_planner_clients_returns_gemma_and_foundation_sec():
+    clients = build_planner_clients(
+        openrouter_api_key="token",
+        foundation_sec_base_url="https://example.ai",
+        foundation_sec_api_key="token",
+        foundation_sec_model="foundation-sec-8b",
+    )
+
+    assert set(clients) == {"orchestrator", "spl_generator"}

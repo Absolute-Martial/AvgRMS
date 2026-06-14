@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 
 from avg_rms_core.contracts import FinalDecision, PlannedAction
+from avg_rms_core.openrouter import build_openrouter_client
 from avg_rms_core.state import AvgRMSState
 from schema.models import FakeModelName
 
@@ -50,3 +52,23 @@ class LLMPlanner:
         else:
             response = await model.ainvoke(payload)
         return response.content if hasattr(response, "content") else str(response)
+
+
+def build_planner_clients(
+    openrouter_api_key: str,
+    foundation_sec_base_url: str,
+    foundation_sec_api_key: str,
+    foundation_sec_model: str,
+) -> dict[str, object]:
+    return {
+        "orchestrator": build_openrouter_client(
+            api_key=openrouter_api_key,
+            model="google/gemma-2-9b-it",
+        ),
+        "spl_generator": ChatOpenAI(
+            api_key=foundation_sec_api_key,
+            base_url=foundation_sec_base_url,
+            model=foundation_sec_model,
+            temperature=0,
+        ),
+    }
