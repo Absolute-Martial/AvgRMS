@@ -1,0 +1,13 @@
+.idea/
+.codex/
+.agents/
+.git.broken-2026-06-14/
+
+AvgRMSBest — Phases & Tasks (build roadmap)/
+AvgRMSBest — Phases & Tasks (build roadmap).md
+cloner
+
+agent-core-workspace/protocol-sift/
+agent-core-workspace/references/
+
+*.log
