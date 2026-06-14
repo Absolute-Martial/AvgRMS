@@ -23,6 +23,7 @@ def test_audit_logger_writes_required_structural_fields(tmp_path):
         run_id="run-1",
         thread_id="thread-1",
         planner="scripted",
+        planner_reason=None,
         event_type="action_result",
         action_id="action-001",
         tool="fake.lookup",

@@ -1,5 +1,5 @@
+import logging
 import time
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -62,13 +62,29 @@ def _logger(state: AvgRMSState) -> JsonlAuditLogger:
     return JsonlAuditLogger(Path(state.audit_log_path))
 
 
+def _planner_label(state: AvgRMSState) -> str:
+    return str(state.metadata.get("audit_planner", state.planner_mode))
+
+
+def _planner_reason(state: AvgRMSState) -> str | None:
+    return state.metadata.get("planner_reason")
+
+
 def _build_adapter(state: AvgRMSState, config: RunnableConfig):
     if state.adapter_mode == "splunk":
+        verify_value = _config_value(
+            config,
+            "splunk_ca_bundle",
+            _config_value(config, "splunk_verify_ssl", True),
+        )
         return SplunkAdapter(
             base_url=_config_value(config, "splunk_base_url", ""),
+            host=_config_value(config, "splunk_host", None),
+            port=int(_config_value(config, "splunk_port", 8089)),
+            scheme=_config_value(config, "splunk_scheme", "https"),
             token=_config_value(config, "splunk_token", ""),
             app=_config_value(config, "splunk_app", "search"),
-            verify_ssl=bool(_config_value(config, "splunk_verify_ssl", True)),
+            verify=verify_value,
         )
     return FakeAdapter(mode=state.metadata["fake_adapter_mode"])
 
@@ -109,7 +125,16 @@ def _coerce_scripted_action_for_adapter(
 async def _next_action(state: AvgRMSState, config: RunnableConfig) -> PlannedAction | FinalDecision:
     if state.planner_mode == "llm":
         planner = LLMPlanner()
-        await planner.plan_with_model(state.request_text, config["configurable"].get("model"))
+        try:
+            action_id = "action-001" if not state.action_history else "action-002"
+            state.metadata["audit_planner"] = "llm"
+            state.metadata["planner_reason"] = None
+            return await planner.plan_action(state, config, action_id)
+        except Exception as exc:
+            reason = str(exc)
+            logging.warning("Falling back to ScriptedPlanner after LLM planner failure: %s", reason)
+            state.metadata["audit_planner"] = "scripted_fallback"
+            state.metadata["planner_reason"] = reason
 
     planner = ScriptedPlanner()
     action_or_final: PlannedAction | FinalDecision
@@ -133,7 +158,8 @@ def _audit_guardrail(
             ts=_now_iso(),
             run_id=_get_run_id(config),
             thread_id=_get_thread_id(config),
-            planner=state.planner_mode,
+            planner=_planner_label(state),
+            planner_reason=_planner_reason(state),
             event_type="guardrail_decision",
             action_id=action.id,
             tool=action.tool,
@@ -160,7 +186,8 @@ def _audit_result(
             ts=_now_iso(),
             run_id=_get_run_id(config),
             thread_id=_get_thread_id(config),
-            planner=state.planner_mode,
+            planner=_planner_label(state),
+            planner_reason=_planner_reason(state),
             event_type="action_result",
             action_id=action.id,
             tool=action.tool,

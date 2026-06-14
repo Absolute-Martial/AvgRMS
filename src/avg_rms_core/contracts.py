@@ -55,6 +55,7 @@ class AuditEvent:
     run_id: str
     thread_id: str
     planner: str
+    planner_reason: str | None
     event_type: str
     action_id: str
     tool: str
