@@ -13,6 +13,35 @@ This project offers a template for you to easily build and run your own agents u
 
 ## Overview
 
+## ComplianceGuard
+
+ComplianceGuard is the active Splunk-only submission built on top of the shared `avg-rms-core` walking skeleton in this repository. The hosted deployment runs the agent loop in-process inside Streamlit and uses the same planner, guardrail, act, critic, and audit shape that was established in the shared-core checkpoint.
+
+### Hosted runtime
+
+- Browser -> Streamlit -> `avg-rms-core` `@entrypoint`
+- Orchestrator model -> Gemma via OpenRouter
+- SPL generation and triage -> Foundation-Sec or cloud fallback
+- Tool execution -> `SplunkAdapter` over Splunk Cloud REST
+- Audit trail -> JSONL with `correction_of`
+
+### Required secrets
+
+- `SPLUNK_BASE_URL`
+- `SPLUNK_TOKEN`
+- `OPENROUTER_API_KEY`
+- `FOUNDATION_SEC_BASE_URL`
+- `FOUNDATION_SEC_API_KEY`
+- `FOUNDATION_SEC_MODEL`
+
+### Hero flow
+
+Use the hosted app to ask:
+
+`Who accessed EU customer PII in the last 30 days, and was it authorized?`
+
+The scripted baseline uses the same route in a deterministic mode for reproducible tests and CI. The hosted path switches to the Splunk adapter and model-backed planning when secrets are available.
+
 ### [Try the app!](https://agent-service-toolkit.streamlit.app/)
 
 <a href="https://agent-service-toolkit.streamlit.app/"><img src="media/app_screenshot.png" width="600"></a>
