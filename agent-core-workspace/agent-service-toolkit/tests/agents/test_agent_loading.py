@@ -69,3 +69,8 @@ class TestAgentLoading:
         """Test getting a non-existent agent."""
         with pytest.raises(KeyError):
             get_agent("nonexistent-agent")
+
+
+def test_get_agent_avg_rms_core():
+    agent = get_agent("avg-rms-core")
+    assert agent is not None
