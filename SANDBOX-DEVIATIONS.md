@@ -4,17 +4,15 @@ Status: code-complete, not done
 
 This branch is intentionally being closed as code-complete only. The implementation is verified enough for the Phase 1 walking skeleton slice, but the following deviations were introduced or left open because of the current sandboxed environment.
 
-## 1. Git portability is not yet proven
+## 1. Remote default branch is still divergent
 
-- Local git history is currently operating through `.git.broken-2026-06-14` with explicit `--git-dir` and `--work-tree` flags.
-- Treat this repository state as locally usable but not yet trusted for remote portability.
-- Before relying on this history for submission, verify:
-  - normal `git status` works without explicit flags
-  - remote push to `origin` works
-  - commit graph and branch history remain intact after that verification
+- This submission repo now has normal local git behavior.
+- The fresh history and `shared-core-checkpoint` tag were pushed successfully to the public remote.
+- The remote already had an unrelated `main`, so the new history is published on a safe branch instead of overwriting that branch.
 
 Required closure:
-- prove real-remote pushability with intact history before trusting this repo layout
+- decide whether the public submission should stay on a named branch or replace remote `main`
+- do not force-update remote `main` without explicitly validating that the old remote history is disposable
 
 ## 2. Architecture deviated from the approved StateGraph shape
 
@@ -24,7 +22,7 @@ Required closure:
 
 Required closure:
 - add an ADR documenting the StateGraph to `@entrypoint` deviation and the reason
-- update the architecture diagram and any related docs to match the actual `@entrypoint` implementation
+- keep the architecture docs aligned with the actual `@entrypoint` implementation as the repo evolves
 
 ## 3. HTTP route is not fully verified in a real app environment
 
