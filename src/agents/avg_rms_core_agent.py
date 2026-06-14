@@ -14,6 +14,7 @@ from avg_rms_core.critics import DeterministicCritic
 from avg_rms_core.fake_adapter import FakeAdapter
 from avg_rms_core.guardrails import GuardrailGate
 from avg_rms_core.planners import LLMPlanner, ScriptedPlanner
+from avg_rms_core.splunk_adapter import SplunkAdapter
 from avg_rms_core.state import AvgRMSState
 
 
@@ -47,7 +48,7 @@ def _build_state(messages: list[BaseMessage], config: RunnableConfig) -> AvgRMSS
         request_text=str(message.content),
         planner_mode=_config_value(config, "planner_mode", "scripted"),
         adapter_mode=_config_value(config, "adapter_mode", "fake"),
-        available_tools=["fake.lookup"],
+        available_tools=[],
         max_attempts=int(_config_value(config, "max_attempts", 2)),
         audit_log_path=str(audit_dir / "avg_rms_core.audit.jsonl"),
         metadata={
@@ -59,6 +60,50 @@ def _build_state(messages: list[BaseMessage], config: RunnableConfig) -> AvgRMSS
 
 def _logger(state: AvgRMSState) -> JsonlAuditLogger:
     return JsonlAuditLogger(Path(state.audit_log_path))
+
+
+def _build_adapter(state: AvgRMSState, config: RunnableConfig):
+    if state.adapter_mode == "splunk":
+        return SplunkAdapter(
+            base_url=_config_value(config, "splunk_base_url", ""),
+            token=_config_value(config, "splunk_token", ""),
+            app=_config_value(config, "splunk_app", "search"),
+            verify_ssl=bool(_config_value(config, "splunk_verify_ssl", True)),
+        )
+    return FakeAdapter(mode=state.metadata["fake_adapter_mode"])
+
+
+def _coerce_scripted_action_for_adapter(
+    state: AvgRMSState,
+    action_or_final: PlannedAction | FinalDecision,
+) -> PlannedAction | FinalDecision:
+    if not isinstance(action_or_final, PlannedAction):
+        return action_or_final
+
+    if state.adapter_mode == "splunk":
+        if action_or_final.id == "action-001":
+            return PlannedAction(
+                id=action_or_final.id,
+                tool="search_spl",
+                args={"spl": "search index=botsv3 sourcetype=wineventlog | head 20"},
+                reason="initial hero search",
+            )
+        return PlannedAction(
+            id=action_or_final.id,
+            tool="search_spl",
+            args={"spl": "search index=botsv3 sourcetype=wineventlog earliest=-30d | head 10"},
+            reason="retry narrowed hero search",
+        )
+
+    if state.metadata.get("scripted_tool_name"):
+        return PlannedAction(
+            id=action_or_final.id,
+            tool=state.metadata["scripted_tool_name"],
+            args=action_or_final.args,
+            reason=action_or_final.reason,
+        )
+
+    return action_or_final
 
 
 async def _next_action(state: AvgRMSState, config: RunnableConfig) -> PlannedAction | FinalDecision:
@@ -73,15 +118,7 @@ async def _next_action(state: AvgRMSState, config: RunnableConfig) -> PlannedAct
     else:
         action_or_final = planner.replan_after_result(state)
 
-    if isinstance(action_or_final, PlannedAction) and state.metadata.get("scripted_tool_name"):
-        action_or_final = PlannedAction(
-            id=action_or_final.id,
-            tool=state.metadata["scripted_tool_name"],
-            args=action_or_final.args,
-            reason=action_or_final.reason,
-        )
-
-    return action_or_final
+    return _coerce_scripted_action_for_adapter(state, action_or_final)
 
 
 def _audit_guardrail(
@@ -149,6 +186,8 @@ async def avg_rms_core_agent(
         messages = previous["messages"] + messages
 
     state = _build_state(messages, config)
+    adapter = _build_adapter(state, config)
+    state.available_tools = [tool["name"] for tool in adapter.list_tools()]
     final_response = ""
 
     while True:
@@ -161,7 +200,7 @@ async def avg_rms_core_agent(
         state.current_action = action_or_final
         state.action_history.append(action_or_final)
 
-        guardrail = GuardrailGate({"fake.lookup"}).check(action_or_final)
+        guardrail = GuardrailGate(set(state.available_tools)).check(action_or_final)
         _audit_guardrail(state, config, action_or_final, guardrail.decision, correction_of)
         if guardrail.decision == "blocked":
             state.last_block_reason = guardrail.reason
@@ -169,8 +208,8 @@ async def avg_rms_core_agent(
             break
 
         start = time.perf_counter()
-        adapter = FakeAdapter(mode=state.metadata["fake_adapter_mode"])
-        adapter.calls = state.attempt_count
+        if isinstance(adapter, FakeAdapter):
+            adapter.calls = state.attempt_count
         result = adapter.run_tool(action_or_final.tool, action_or_final.args)
         latency_ms = int((time.perf_counter() - start) * 1000)
         _audit_result(state, config, action_or_final, correction_of, result, latency_ms)

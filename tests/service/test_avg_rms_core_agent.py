@@ -3,6 +3,7 @@ import json
 import pytest
 
 from agents.avg_rms_core_agent import avg_rms_core_agent
+from avg_rms_core.contracts import ToolResult
 from langgraph.checkpoint.memory import MemorySaver
 from schema import UserInput
 from service import service
@@ -132,3 +133,50 @@ async def test_avg_rms_core_attempts_exhausted_with_max_attempts_one(monkeypatch
     assert len(action_rows) == 1
     assert action_rows[0]["action_id"] == "action-001"
     assert action_rows[0]["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_avg_rms_core_uses_splunk_adapter(monkeypatch, tmp_path):
+    class StubSplunkAdapter:
+        name = "splunk"
+
+        def list_tools(self):
+            return [{"name": "search_spl"}]
+
+        def run_tool(self, tool: str, args: dict):
+            return ToolResult(
+                tool=tool,
+                args=args,
+                stdout="[]",
+                output_hash="hash-splunk",
+                status="ok",
+            )
+
+    monkeypatch.setattr(service, "get_agent", lambda agent_id: avg_rms_core_agent)
+    monkeypatch.setattr("agents.avg_rms_core_agent.SplunkAdapter", lambda **kwargs: StubSplunkAdapter())
+    avg_rms_core_agent.checkpointer = MemorySaver()
+
+    response = await service.invoke(
+        UserInput(
+            message="Who accessed EU customer PII in the last 30 days?",
+            agent_config={
+                "planner_mode": "scripted",
+                "adapter_mode": "splunk",
+                "splunk_base_url": "https://example.splunkcloud.com",
+                "splunk_token": "token",
+                "audit_log_dir": str(tmp_path),
+            },
+        ),
+        agent_id="avg-rms-core",
+    )
+
+    assert "Completed the lookup successfully." in response.content
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "avg_rms_core.audit.jsonl").read_text().splitlines()
+    ]
+    action_rows = [row for row in rows if row["event_type"] == "action_result"]
+
+    assert action_rows[-1]["tool"] == "search_spl"
+    assert action_rows[-1]["decision"] == "allowed"
